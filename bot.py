@@ -3,10 +3,10 @@ import random
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import requests
-from flask import Flask, send_file
+from flask import Flask
 
 from telegram import Bot, Update
-from telegram.ext import Updater, CommandHandler, CallbackContext, Dispatcher
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # ---------------- CONFIG -----------------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -23,25 +23,24 @@ SAMPLE_NAMES = ["Romeo", "Juliet", "Aryan", "Isha", "Sneha", "Rohit"]
 # -----------------------------------------
 
 bot = Bot(BOT_TOKEN)
-updater = Updater(BOT_TOKEN, use_context=True)
-dispatcher = updater.dispatcher
-
 app = Flask(__name__)
 
-def get_profile_pic(user_id):
+# ---------------- IMAGE FUNCTIONS -----------------
+async def get_profile_pic(user_id):
     """Fetch Telegram profile pic or fallback default avatar."""
     try:
-        photos = bot.get_user_profile_photos(user_id, limit=1)
+        photos = await bot.get_user_profile_photos(user_id, limit=1)
         if photos.total_count > 0:
             file_id = photos.photos[0][0].file_id
-            file = bot.get_file(file_id)
-            content = requests.get(file.file_path).content
+            file = await bot.get_file(file_id)
+            content = await file.download_as_bytearray()
             return Image.open(BytesIO(content)).convert("RGBA")
     except:
         pass
+    # Default avatar
     img = Image.new("RGBA", (300, 300), (200, 200, 200, 255))
     draw = ImageDraw.Draw(img)
-    draw.ellipse((0,0,300,300), fill=(150,150,150,255))
+    draw.ellipse((0, 0, 300, 300), fill=(150, 150, 150, 255))
     return img
 
 def make_couple_image(user_a_name, user_a_img, user_b_name, user_b_img, preferred=False):
@@ -69,34 +68,42 @@ def choose_partner(user_id):
         return partner_id, True
     return random.choice(SAMPLE_NAMES), False
 
-# Telegram Command Handler
-def command_couples(update: Update, context: CallbackContext):
+# ---------------- TELEGRAM HANDLER -----------------
+async def command_couples(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat_id = update.effective_chat.id
     partner, is_pref = choose_partner(user.id)
+
     if isinstance(partner,int):
-        partner_obj = bot.get_chat(partner)
+        partner_obj = await bot.get_chat(partner)
         partner_name = partner_obj.full_name
-        partner_img = get_profile_pic(partner)
+        partner_img = await get_profile_pic(partner)
     else:
         partner_name = partner
         partner_img = Image.new("RGBA",(300,300),(150,150,150,255))
-    user_img = get_profile_pic(user.id)
+
+    user_img = await get_profile_pic(user.id)
     img = make_couple_image(user.full_name, user_img, partner_name, partner_img, preferred=is_pref)
     caption = f"💖 {user.full_name} + {partner_name} = {'❤️' if is_pref else '💙'}"
-    context.bot.send_photo(chat_id=chat_id, photo=img, caption=caption)
+    
+    # Telegram expects file-like object
+    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=caption)
 
-dispatcher.add_handler(CommandHandler("couples", command_couples))
-
-# Flask Route
+# ---------------- FLASK -----------------
 @app.route("/")
 def home():
     return "<h2>WeirdoBot Web Service Active!</h2><p>Bot running with Flask + Telegram Polling.</p>"
 
+# ---------------- MAIN -----------------
 if __name__ == "__main__":
-    # Start Telegram polling in background
+    # Start Telegram bot in background thread
     import threading
-    t = threading.Thread(target=updater.start_polling, daemon=True)
+
+    app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
+    app_bot.add_handler(CommandHandler("couples", command_couples))
+
+    t = threading.Thread(target=lambda: app_bot.run_polling(), daemon=True)
     t.start()
+
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
