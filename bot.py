@@ -24,7 +24,6 @@ app = Flask(__name__)
 
 # ---------------- IMAGE FUNCTIONS -----------------
 async def get_profile_pic(user_id):
-    """Fetch Telegram profile pic or fallback default avatar."""
     try:
         photos = await bot.get_user_profile_photos(user_id, limit=1)
         if photos.total_count > 0:
@@ -34,7 +33,6 @@ async def get_profile_pic(user_id):
             return Image.open(BytesIO(content)).convert("RGBA")
     except:
         pass
-    # Default avatar
     img = Image.new("RGBA", (300, 300), (200, 200, 200, 255))
     draw = ImageDraw.Draw(img)
     draw.ellipse((0, 0, 300, 300), fill=(150, 150, 150, 255))
@@ -71,8 +69,7 @@ async def command_couples(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     partner, is_pref = choose_partner(user.id)
 
-    # If partner is an ID, fetch profile pic
-    if isinstance(partner, int):
+    if isinstance(partner,int):
         try:
             partner_obj = await bot.get_chat(partner)
             partner_name = partner_obj.full_name
@@ -98,15 +95,19 @@ def home():
 # ---------------- MAIN -----------------
 if __name__ == "__main__":
     import threading
+    import asyncio
+    from telegram.ext import ApplicationBuilder
 
-    # Telegram bot setup
-    app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
-    app_bot.add_handler(CommandHandler("couples", command_couples))
+    async def main_bot():
+        app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
+        app_bot.add_handler(CommandHandler("couples", command_couples))
+        print("Bot started...")
+        await app_bot.run_polling()
 
-    # Run Telegram bot in separate thread
-    t = threading.Thread(target=lambda: app_bot.run_polling(), daemon=True)
+    # Start bot in separate thread
+    t = threading.Thread(target=lambda: asyncio.run(main_bot()), daemon=True)
     t.start()
 
-    # Run Flask app
+    # Start Flask app (health check)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
