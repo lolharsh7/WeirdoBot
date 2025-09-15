@@ -2,9 +2,7 @@ import os
 import random
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
-import requests
 from flask import Flask
-
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -20,7 +18,6 @@ PREFERRED_PAIRS = {
 }
 PREFERRED_CHANCE = 0.55  # 55%
 SAMPLE_NAMES = ["Romeo", "Juliet", "Aryan", "Isha", "Sneha", "Rohit"]
-# -----------------------------------------
 
 bot = Bot(BOT_TOKEN)
 app = Flask(__name__)
@@ -74,10 +71,15 @@ async def command_couples(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     partner, is_pref = choose_partner(user.id)
 
-    if isinstance(partner,int):
-        partner_obj = await bot.get_chat(partner)
-        partner_name = partner_obj.full_name
-        partner_img = await get_profile_pic(partner)
+    # If partner is an ID, fetch profile pic
+    if isinstance(partner, int):
+        try:
+            partner_obj = await bot.get_chat(partner)
+            partner_name = partner_obj.full_name
+            partner_img = await get_profile_pic(partner)
+        except:
+            partner_name = "Unknown"
+            partner_img = Image.new("RGBA",(300,300),(150,150,150,255))
     else:
         partner_name = partner
         partner_img = Image.new("RGBA",(300,300),(150,150,150,255))
@@ -85,8 +87,7 @@ async def command_couples(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_img = await get_profile_pic(user.id)
     img = make_couple_image(user.full_name, user_img, partner_name, partner_img, preferred=is_pref)
     caption = f"💖 {user.full_name} + {partner_name} = {'❤️' if is_pref else '💙'}"
-    
-    # Telegram expects file-like object
+
     await context.bot.send_photo(chat_id=chat_id, photo=img, caption=caption)
 
 # ---------------- FLASK -----------------
@@ -96,14 +97,16 @@ def home():
 
 # ---------------- MAIN -----------------
 if __name__ == "__main__":
-    # Start Telegram bot in background thread
     import threading
 
+    # Telegram bot setup
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("couples", command_couples))
 
+    # Run Telegram bot in separate thread
     t = threading.Thread(target=lambda: app_bot.run_polling(), daemon=True)
     t.start()
 
+    # Run Flask app
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
